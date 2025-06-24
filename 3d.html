@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>3D Maze VR-style Game</title>
+<title>3D Maze VR-style Game - Split Screen</title>
 <style>
   body, html {
     margin: 0; overflow: hidden; height: 100%; background: #000;
@@ -43,7 +43,6 @@ let enemies = [];
 let health = 100;
 let mazeWalls = [];
 let gamepadIndex = null;
-
 const maze = [
   "111111111111111",
   "100000010000001",
@@ -55,7 +54,6 @@ const maze = [
   "100000000000001",
   "111111111111111"
 ];
-
 const TILE = 10;
 const permissionBtn = document.getElementById('permissionBtn');
 
@@ -83,37 +81,12 @@ function startGame() {
   init();
 }
 
-// New function to find a random empty tile in the maze
-function getRandomEmptyTile() {
-  const emptyTiles = [];
-  for (let i = 0; i < maze.length; i++) {
-    for (let j = 0; j < maze[i].length; j++) {
-      if (maze[i][j] === '0') {
-        emptyTiles.push({ row: i, col: j });
-      }
-    }
-  }
-  if (emptyTiles.length === 0) return null;
-  return emptyTiles[Math.floor(Math.random() * emptyTiles.length)];
-}
-
 function init() {
   scene = new THREE.Scene();
   clock = new THREE.Clock();
 
   camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-  
-  // Use random safe spawn tile
-  const spawnTile = getRandomEmptyTile();
-  if (spawnTile) {
-    const spawnX = spawnTile.col * TILE + TILE / 2;
-    const spawnZ = spawnTile.row * TILE + TILE / 2;
-    camera.position.set(spawnX, 2, spawnZ);
-  } else {
-    // fallback spawn if no empty tiles found
-    camera.position.set(TILE + TILE / 2, 2, TILE + TILE / 2);
-  }
-  
+  camera.position.set(TILE + TILE / 2, 2, TILE + TILE / 2);
   camera.rotation.order = 'YXZ';
 
   const light = new THREE.DirectionalLight(0xffffff, 1);
@@ -147,6 +120,7 @@ function init() {
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setScissorTest(true); // Enable scissor test for split view
   document.body.appendChild(renderer.domElement);
 
   window.addEventListener('resize', onWindowResize);
@@ -304,6 +278,19 @@ function animate() {
     }
   }
 
+  renderer.clear();
+
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+
+  // Left half viewport
+  renderer.setViewport(0, 0, width / 2, height);
+  renderer.setScissor(0, 0, width / 2, height);
+  renderer.render(scene, camera);
+
+  // Right half viewport
+  renderer.setViewport(width / 2, 0, width / 2, height);
+  renderer.setScissor(width / 2, 0, width / 2, height);
   renderer.render(scene, camera);
 }
 
