@@ -197,26 +197,104 @@ function onDeviceOrientation(event) {
   camera.rotation.x = pitch;
 }
 
+let gamepadActive = false;
+
+window.addEventListener("gamepadconnected", (e) => {
+  console.log("Gamepad connected:", e.gamepad);
+  gamepadActive = true;
+});
+
+window.addEventListener("gamepaddisconnected", (e) => {
+  console.log("Gamepad disconnected:", e.gamepad);
+  gamepadActive = false;
+});
+
 function animate() {
   requestAnimationFrame(animate);
 
-  // --- Xbox controller joystick input ---
-  const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-  if (gamepads[0]) {
+  // Handle Gamepad input only if connected & active
+  if (gamepadActive) {
+    const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
     const gp = gamepads[0];
-    const deadzone = 0.2;
+    if (gp) {
+      const deadzone = 0.2;
+      let xAxis = gp.axes[0]; // left stick horizontal
+      let yAxis = gp.axes[1]; // left stick vertical
 
-    let xAxis = gp.axes[0];
-    let yAxis = gp.axes[1];
+      // Apply deadzone
+      xAxis = Math.abs(xAxis) < deadzone ? 0 : xAxis;
+      yAxis = Math.abs(yAxis) < deadzone ? 0 : yAxis;
 
-    if (Math.abs(xAxis) < deadzone) xAxis = 0;
-    if (Math.abs(yAxis) < deadzone) yAxis = 0;
+      // Use axis values directly for smoother movement velocity
+      // Negative yAxis means push forward
+      velocity.x -= xAxis * 50.0 * clock.getDelta();
+      velocity.z -= yAxis * 50.0 * clock.getDelta();
 
-    moveForward = yAxis < -deadzone;
-    moveBackward = yAxis > deadzone;
-    moveLeft = xAxis < -deadzone;
-    moveRight = xAxis > deadzone;
+      // Disable keyboard movement flags when using gamepad input for this frame
+      moveForward = moveBackward = moveLeft = moveRight = false;
+    }
   }
+
+  // Existing keyboard controls still applied if no gamepad active
+
+  const delta = clock.getDelta();
+
+  // Apply friction to velocity
+  velocity.x -= velocity.x * 10.0 * delta;
+  velocity.z -= velocity.z * 10.0 * delta;
+
+  // Keyboard movement (only if no gamepad)
+  if (!gamepadActive) {
+    direction.z = Number(moveForward) - Number(moveBackward);
+    direction.x = Number(moveRight) - Number(moveLeft);
+    direction.normalize();
+
+    if (moveForward || moveBackward) velocity.z -= direction.z * 50.0 * delta;
+    if (moveLeft || moveRight) velocity.x -= direction.x * 50.0 * delta;
+  }
+
+  // Calculate movement vectors based on camera direction
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  forward.y = 0; forward.normalize();
+
+  const right = new THREE.Vector3();
+  right.crossVectors(new THREE.Vector3(0, 1, 0), forward).normalize();
+
+  let newPos = camera.position.clone();
+  newPos.add(forward.clone().multiplyScalar(-velocity.z * delta));
+  newPos.add(right.clone().multiplyScalar(velocity.x * delta));
+
+  // Collision detection
+  const playerRadius = 2;
+  let collision = false;
+  for (let wall of mazeWalls) {
+    const dist = wall.position.distanceTo(newPos);
+    if (dist < TILE / 2 + playerRadius) {
+      collision = true; break;
+    }
+  }
+
+  if (!collision) {
+    camera.position.copy(newPos);
+    playerCollider.center.copy(camera.position);
+  }
+
+  // Enemy logic (unchanged)
+  for (let enemy of enemies) {
+    enemy.position.add(enemy.userData.direction.clone().multiplyScalar(5 * delta));
+    const distToPlayer = enemy.position.distanceTo(playerCollider.center);
+    if (distToPlayer < 4) {
+      health -= 50 * delta;
+      if (health <= 0) {
+        alert("Game Over!");
+        window.location.reload();
+      }
+    }
+  }
+
+  renderer.render(scene, camera);
+}
 
   const delta = clock.getDelta();
   velocity.x -= velocity.x * 10.0 * delta;
