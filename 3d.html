@@ -1,49 +1,36 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>3D Maze VR-style Game</title>
-  <style>
-    body, html {
-      margin: 0; overflow: hidden; height: 100%; background: #000;
-      font-family: Arial, sans-serif;
-    }
-    canvas {
-      display: block;
-    }
-    #permissionBtn {
-      position: absolute;
-      top: 40%;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 20px 30px;
-      font-size: 1.5em;
-      background: #222;
-      color: #eee;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      z-index: 10;
-    }
-    #gameOver {
-      position: fixed;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      background: rgba(0, 0, 0, 0.9);
-      color: white;
-      font-size: 3em;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 20;
-    }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>3D Maze VR-style Game</title>
+<style>
+  body, html {
+    margin: 0; overflow: hidden; height: 100%; background: #000;
+    font-family: Arial, sans-serif;
+  }
+  canvas {
+    display: block;
+  }
+  #permissionBtn {
+    position: absolute;
+    top: 40%;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 20px 30px;
+    font-size: 1.5em;
+    background: #222;
+    color: #eee;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    z-index: 10;
+  }
+</style>
 </head>
 <body>
 
 <button id="permissionBtn">Tap to Enable Motion Controls</button>
-<div id="gameOver">Game Over!</div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
 <script>
@@ -56,7 +43,6 @@ let enemies = [];
 let health = 100;
 let mazeWalls = [];
 let gamepadIndex = null;
-let animationFrameId = null;
 
 const maze = [
   "111111111111111",
@@ -71,7 +57,6 @@ const maze = [
 ];
 const TILE = 10;
 const permissionBtn = document.getElementById('permissionBtn');
-const gameOverUI = document.getElementById('gameOver');
 
 permissionBtn.addEventListener('click', async () => {
   if (typeof DeviceOrientationEvent !== 'undefined' &&
@@ -142,6 +127,11 @@ function init() {
   document.addEventListener('keydown', onKeyDown);
   document.addEventListener('keyup', onKeyUp);
   window.addEventListener('deviceorientation', onDeviceOrientation, true);
+
+  window.addEventListener("gamepadconnected", (e) => {
+    console.log("Gamepad connected:", e.gamepad);
+    gamepadIndex = e.gamepad.index;
+  });
 
   animate();
 }
@@ -221,52 +211,50 @@ function onDeviceOrientation(event) {
   pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
-  camera.rotation.z = 0; // Lock roll
 }
 
 function handleGamepadInput() {
   const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-  const gp = gamepads[gamepadIndex || 0];
+  
+  let gp = null;
+  if (gamepadIndex !== null && gamepads[gamepadIndex]) {
+    gp = gamepads[gamepadIndex];
+  } else {
+    // fallback: find first connected gamepad
+    for (const pad of gamepads) {
+      if (pad) {
+        gp = pad;
+        gamepadIndex = pad.index;
+        console.log("Fallback gamepad index set to", gamepadIndex);
+        break;
+      }
+    }
+  }
+  
   if (!gp) return;
 
   const threshold = 0.2;
   const leftX = gp.axes[0];
   const leftY = gp.axes[1];
 
-  moveForward = leftY < -threshold;
-  moveBackward = leftY > threshold;
-  moveLeft = leftX < -threshold;
-  moveRight = leftX > threshold;
-}
+  // Clear keyboard move flags to avoid conflicts
+  moveForward = false;
+  moveBackward = false;
+  moveLeft = false;
+  moveRight = false;
 
-function checkCollision(pos) {
-  return mazeWalls.some(wall => {
-    const dx = Math.abs(pos.x - wall.position.x);
-    const dz = Math.abs(pos.z - wall.position.z);
-    return dx < TILE / 2 + 1.5 && dz < TILE / 2 + 1.5;
-  });
-}
+  if (leftY < -threshold) moveForward = true;
+  if (leftY > threshold) moveBackward = true;
+  if (leftX < -threshold) moveLeft = true;
+  if (leftX > threshold) moveRight = true;
 
-function updateEnemy(enemy, delta) {
-  const dir = enemy.userData.direction.clone();
-  const newPos = enemy.position.clone().add(dir.multiplyScalar(5 * delta));
-
-  if (checkCollision(newPos)) {
-    enemy.userData.direction.reflect(new THREE.Vector3(
-      (Math.random() > 0.5 ? 1 : -1), 0, (Math.random() > 0.5 ? 1 : -1)
-    )).normalize();
-  } else {
-    enemy.position.copy(newPos);
-  }
-}
-
-function endGame() {
-  cancelAnimationFrame(animationFrameId);
-  gameOverUI.style.display = 'flex';
+  // Debug logs (comment out if too noisy)
+  // console.log('Gamepad axes:', leftX.toFixed(2), leftY.toFixed(2));
+  // console.log('Move:', moveForward, moveBackward, moveLeft, moveRight);
 }
 
 function animate() {
-  animationFrameId = requestAnimationFrame(animate);
+  requestAnimationFrame(animate);
   const delta = clock.getDelta();
 
   if (navigator.getGamepads) handleGamepadInput();
@@ -295,18 +283,31 @@ function animate() {
   newPos.add(forward.clone().multiplyScalar(-moveZ));
   newPos.add(right.clone().multiplyScalar(moveX));
 
-  if (!checkCollision(newPos)) {
+  // Collision detection with walls
+  let collision = false;
+  for (let wall of mazeWalls) {
+    const dx = Math.abs(newPos.x - wall.position.x);
+    const dz = Math.abs(newPos.z - wall.position.z);
+    // Adjust collision margin as needed
+    if (dx < TILE / 2 + 0.3 && dz < TILE / 2 + 0.3) {
+      collision = true;
+      break;
+    }
+  }
+
+  if (!collision) {
     camera.position.copy(newPos);
     playerCollider.center.copy(camera.position);
   }
 
   for (let enemy of enemies) {
-    updateEnemy(enemy, delta);
+    enemy.position.add(enemy.userData.direction.clone().multiplyScalar(5 * delta));
     const distToPlayer = enemy.position.distanceTo(playerCollider.center);
     if (distToPlayer < 4) {
       health -= 50 * delta;
       if (health <= 0) {
-        endGame();
+        alert("Game Over!");
+        window.location.reload();
       }
     }
   }
@@ -314,10 +315,6 @@ function animate() {
   renderer.render(scene, camera);
 }
 
-window.addEventListener("gamepadconnected", (e) => {
-  gamepadIndex = e.gamepad.index;
-});
 </script>
 </body>
 </html>
-
