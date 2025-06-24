@@ -33,6 +33,8 @@
 <button id="permissionBtn">Tap to Enable Motion Controls</button>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.150.1/examples/js/controls/DeviceOrientationControls.js"></script>
+
 <script>
 let scene, camera, renderer, clock;
 let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
@@ -42,7 +44,8 @@ let playerCollider;
 let enemies = [];
 let health = 100;
 let mazeWalls = [];
-let gamepadIndex = null;
+let orientationControls;
+
 const maze = [
   "111111111111111",
   "100000010000001",
@@ -55,6 +58,7 @@ const maze = [
   "111111111111111"
 ];
 const TILE = 10;
+
 const permissionBtn = document.getElementById('permissionBtn');
 
 permissionBtn.addEventListener('click', async () => {
@@ -86,19 +90,18 @@ function init() {
   clock = new THREE.Clock();
 
   camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-  camera.position.set(TILE + TILE / 2, 2, TILE + TILE / 2);
-  camera.rotation.order = 'YXZ';
+  camera.position.set(TILE * 1 + TILE / 2, 2, TILE * 1 + TILE / 2);
 
   const light = new THREE.DirectionalLight(0xffffff, 1);
   light.position.set(1, 2, 3);
   scene.add(light);
 
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(maze[0].length * TILE, maze.length * TILE),
-    new THREE.MeshLambertMaterial({ color: 0x228B22 })
-  );
+  const floorGeometry = new THREE.PlaneGeometry(maze[0].length * TILE, maze.length * TILE);
+  const floorMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+  const floor = new THREE.Mesh(floorGeometry, floorMaterial);
   floor.rotation.x = -Math.PI / 2;
-  floor.position.set((maze[0].length * TILE) / 2 - TILE / 2, 0, (maze.length * TILE) / 2 - TILE / 2);
+  floor.position.x = (maze[0].length * TILE) / 2 - TILE / 2;
+  floor.position.z = (maze.length * TILE) / 2 - TILE / 2;
   scene.add(floor);
 
   const wallGeometry = new THREE.BoxGeometry(TILE, TILE, TILE);
@@ -125,12 +128,16 @@ function init() {
   window.addEventListener('resize', onWindowResize);
   document.addEventListener('keydown', onKeyDown);
   document.addEventListener('keyup', onKeyUp);
-  window.addEventListener('deviceorientation', onDeviceOrientation, true);
+
+  orientationControls = new THREE.DeviceOrientationControls(camera, true);
+  orientationControls.connect();
+  orientationControls.enabled = true;
 
   animate();
 }
 
 function createEnemies() {
+  enemies = [];
   const enemyGeometry = new THREE.SphereGeometry(2, 16, 16);
   const enemyMaterial = new THREE.MeshLambertMaterial({ color: 0xff0000 });
   const positions = [
@@ -141,9 +148,7 @@ function createEnemies() {
   positions.forEach(pos => {
     const enemy = new THREE.Mesh(enemyGeometry, enemyMaterial);
     enemy.position.set(pos.x, 2, pos.z);
-    enemy.userData = {
-      direction: new THREE.Vector3((Math.random() - 0.5), 0, (Math.random() - 0.5)).normalize()
-    };
+    enemy.userData = { direction: new THREE.Vector3((Math.random() - 0.5), 0, (Math.random() - 0.5)).normalize() };
     scene.add(enemy);
     enemies.push(enemy);
   });
@@ -181,53 +186,10 @@ function onKeyUp(event) {
   }
 }
 
-let baseAlpha = null;
-function onDeviceOrientation(event) {
-  if (event.alpha == null || event.beta == null || event.gamma == null) return;
-
-  const orientation = (screen.orientation || {}).angle || window.orientation || 0;
-  if (baseAlpha === null) baseAlpha = event.alpha;
-
-  let yaw = 0;
-  let pitch = 0;
-
-  if (orientation === 0) {
-    yaw = THREE.MathUtils.degToRad(event.alpha - baseAlpha);
-    pitch = THREE.MathUtils.degToRad(event.beta - 90);
-  } else if (orientation === 90) {
-    yaw = THREE.MathUtils.degToRad(event.alpha - baseAlpha);
-    pitch = THREE.MathUtils.degToRad(-event.gamma);
-  } else if (orientation === -90 || orientation === 270) {
-    yaw = THREE.MathUtils.degToRad(event.alpha - baseAlpha);
-    pitch = THREE.MathUtils.degToRad(event.gamma);
-  }
-
-  pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
-  camera.rotation.y = yaw;
-  camera.rotation.x = pitch;
-}
-
-function handleGamepadInput() {
-  const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-  const gp = gamepads[gamepadIndex || 0];
-  if (!gp) return;
-
-  const threshold = 0.2;
-  const leftX = gp.axes[0];
-  const leftY = gp.axes[1];
-
-  moveForward = leftY < -threshold;
-  moveBackward = leftY > threshold;
-  moveLeft = leftX < -threshold;
-  moveRight = leftX > threshold;
-}
-
 function animate() {
   requestAnimationFrame(animate);
+
   const delta = clock.getDelta();
-
-  if (navigator.getGamepads) handleGamepadInput();
-
   velocity.x -= velocity.x * 10.0 * delta;
   velocity.z -= velocity.z * 10.0 * delta;
 
@@ -238,6 +200,11 @@ function animate() {
   if (moveForward || moveBackward) velocity.z -= direction.z * 50.0 * delta;
   if (moveLeft || moveRight) velocity.x -= direction.x * 50.0 * delta;
 
+  let moveX = velocity.x * delta;
+  let moveZ = velocity.z * delta;
+
+  if (orientationControls) orientationControls.update();
+
   const forward = new THREE.Vector3();
   camera.getWorldDirection(forward);
   forward.y = 0; forward.normalize();
@@ -245,17 +212,15 @@ function animate() {
   const right = new THREE.Vector3();
   right.crossVectors(new THREE.Vector3(0, 1, 0), forward).normalize();
 
-  let moveX = velocity.x * delta;
-  let moveZ = velocity.z * delta;
-
   let newPos = camera.position.clone();
   newPos.add(forward.clone().multiplyScalar(-moveZ));
   newPos.add(right.clone().multiplyScalar(moveX));
 
+  const playerRadius = 2;
   let collision = false;
   for (let wall of mazeWalls) {
     const dist = wall.position.distanceTo(newPos);
-    if (dist < TILE / 2 + 2) {
+    if (dist < TILE / 2 + playerRadius) {
       collision = true; break;
     }
   }
@@ -279,11 +244,6 @@ function animate() {
 
   renderer.render(scene, camera);
 }
-
-window.addEventListener("gamepadconnected", (e) => {
-  gamepadIndex = e.gamepad.index;
-});
 </script>
 </body>
 </html>
-
