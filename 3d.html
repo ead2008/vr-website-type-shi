@@ -215,28 +215,36 @@ function animate() {
       let xAxis = Math.abs(gp.axes[0]) > deadzone ? gp.axes[0] : 0;
       let yAxis = Math.abs(gp.axes[1]) > deadzone ? gp.axes[1] : 0;
 
-      velocity.x -= xAxis * 50.0 * delta;
-      velocity.z -= yAxis * 50.0 * delta;
+      const forward = new THREE.Vector3();
+      camera.getWorldDirection(forward);
+      forward.y = 0;
+      forward.normalize();
+
+      const right = new THREE.Vector3();
+      right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+
+      direction.add(forward.clone().multiplyScalar(-yAxis));
+      direction.add(right.clone().multiplyScalar(xAxis));
+      direction.normalize();
     }
   } else {
-    direction.z = Number(moveForward) - Number(moveBackward);
-    direction.x = Number(moveRight) - Number(moveLeft);
-    direction.normalize();
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    forward.y = 0; forward.normalize();
 
-    if (moveForward || moveBackward) velocity.z -= direction.z * 50.0 * delta;
-    if (moveLeft || moveRight) velocity.x -= direction.x * 50.0 * delta;
+    const right = new THREE.Vector3();
+    right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+
+    if (moveForward) direction.add(forward);
+    if (moveBackward) direction.add(forward.clone().negate());
+    if (moveRight) direction.add(right);
+    if (moveLeft) direction.add(right.clone().negate());
+    direction.normalize();
   }
 
-  const forward = new THREE.Vector3();
-  camera.getWorldDirection(forward);
-  forward.y = 0; forward.normalize();
+  velocity.add(direction.clone().multiplyScalar(50.0 * delta));
 
-  const right = new THREE.Vector3();
-  right.crossVectors(new THREE.Vector3(0, 1, 0), forward).normalize();
-
-  let newPos = camera.position.clone();
-  newPos.add(forward.clone().multiplyScalar(-velocity.z * delta));
-  newPos.add(right.clone().multiplyScalar(velocity.x * delta));
+  let newPos = camera.position.clone().add(velocity.clone().multiplyScalar(delta));
 
   const playerRadius = 2;
   let collision = false;
