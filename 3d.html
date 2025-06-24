@@ -1,32 +1,32 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>3D Maze VR-style Game</title>
-  <style>
-    body, html {
-      margin: 0; overflow: hidden; height: 100%; background: #000;
-      font-family: Arial, sans-serif;
-    }
-    canvas {
-      display: block;
-    }
-    #permissionBtn {
-      position: absolute;
-      top: 40%;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 20px 30px;
-      font-size: 1.5em;
-      background: #222;
-      color: #eee;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      z-index: 10;
-    }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>3D Maze VR-style Game</title>
+<style>
+  body, html {
+    margin: 0; overflow: hidden; height: 100%; background: #000;
+    font-family: Arial, sans-serif;
+  }
+  canvas {
+    display: block;
+  }
+  #permissionBtn {
+    position: absolute;
+    top: 40%;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 20px 30px;
+    font-size: 1.5em;
+    background: #222;
+    color: #eee;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    z-index: 10;
+  }
+</style>
 </head>
 <body>
 
@@ -42,9 +42,7 @@ let playerCollider;
 let enemies = [];
 let health = 100;
 let mazeWalls = [];
-let gameStarted = false;
-let gamepadActive = false;
-
+let gamepadIndex = null;
 const maze = [
   "111111111111111",
   "100000010000001",
@@ -57,26 +55,29 @@ const maze = [
   "111111111111111"
 ];
 const TILE = 10;
-
 const permissionBtn = document.getElementById('permissionBtn');
 
 permissionBtn.addEventListener('click', async () => {
-  try {
-    if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
       const response = await DeviceOrientationEvent.requestPermission();
-      if (response !== 'granted') throw 'Permission denied';
+      if (response === 'granted') {
+        startGame();
+        permissionBtn.style.display = 'none';
+      } else {
+        alert('Permission denied. Motion controls will not work.');
+      }
+    } catch (err) {
+      alert('Error while requesting permission: ' + err);
     }
-    permissionBtn.style.display = 'none';
+  } else {
     startGame();
-  } catch (err) {
-    alert('Motion permission error: ' + err);
+    permissionBtn.style.display = 'none';
   }
 });
 
 function startGame() {
-  if (gameStarted) return;
-  gameStarted = true;
   init();
 }
 
@@ -85,19 +86,19 @@ function init() {
   clock = new THREE.Clock();
 
   camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-  camera.position.set(TILE * 1 + TILE / 2, 2, TILE * 1 + TILE / 2);
+  camera.position.set(TILE + TILE / 2, 2, TILE + TILE / 2);
   camera.rotation.order = 'YXZ';
 
   const light = new THREE.DirectionalLight(0xffffff, 1);
   light.position.set(1, 2, 3);
   scene.add(light);
 
-  const floorGeometry = new THREE.PlaneGeometry(maze[0].length * TILE, maze.length * TILE);
-  const floorMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
-  const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(maze[0].length * TILE, maze.length * TILE),
+    new THREE.MeshLambertMaterial({ color: 0x228B22 })
+  );
   floor.rotation.x = -Math.PI / 2;
-  floor.position.x = (maze[0].length * TILE) / 2 - TILE / 2;
-  floor.position.z = (maze.length * TILE) / 2 - TILE / 2;
+  floor.position.set((maze[0].length * TILE) / 2 - TILE / 2, 0, (maze.length * TILE) / 2 - TILE / 2);
   scene.add(floor);
 
   const wallGeometry = new THREE.BoxGeometry(TILE, TILE, TILE);
@@ -126,15 +127,6 @@ function init() {
   document.addEventListener('keyup', onKeyUp);
   window.addEventListener('deviceorientation', onDeviceOrientation, true);
 
-  window.addEventListener('gamepadconnected', () => {
-    console.log('Gamepad connected');
-    gamepadActive = true;
-  });
-  window.addEventListener('gamepaddisconnected', () => {
-    console.log('Gamepad disconnected');
-    gamepadActive = false;
-  });
-
   animate();
 }
 
@@ -149,7 +141,9 @@ function createEnemies() {
   positions.forEach(pos => {
     const enemy = new THREE.Mesh(enemyGeometry, enemyMaterial);
     enemy.position.set(pos.x, 2, pos.z);
-    enemy.userData = { direction: new THREE.Vector3((Math.random() - 0.5), 0, (Math.random() - 0.5)).normalize() };
+    enemy.userData = {
+      direction: new THREE.Vector3((Math.random() - 0.5), 0, (Math.random() - 0.5)).normalize()
+    };
     scene.add(enemy);
     enemies.push(enemy);
   });
@@ -173,6 +167,7 @@ function onKeyDown(event) {
     case 'KeyD': moveRight = true; break;
   }
 }
+
 function onKeyUp(event) {
   switch (event.code) {
     case 'ArrowUp':
@@ -189,68 +184,78 @@ function onKeyUp(event) {
 let baseAlpha = null;
 function onDeviceOrientation(event) {
   if (event.alpha == null || event.beta == null || event.gamma == null) return;
+
+  const orientation = (screen.orientation || {}).angle || window.orientation || 0;
   if (baseAlpha === null) baseAlpha = event.alpha;
 
-  let yaw = THREE.MathUtils.degToRad(event.alpha - baseAlpha);
-  let pitch = THREE.MathUtils.degToRad(event.beta - 90);
-  pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
+  let yaw = 0;
+  let pitch = 0;
 
+  if (orientation === 0) {
+    yaw = THREE.MathUtils.degToRad(event.alpha - baseAlpha);
+    pitch = THREE.MathUtils.degToRad(event.beta - 90);
+  } else if (orientation === 90) {
+    yaw = THREE.MathUtils.degToRad(event.alpha - baseAlpha);
+    pitch = THREE.MathUtils.degToRad(-event.gamma);
+  } else if (orientation === -90 || orientation === 270) {
+    yaw = THREE.MathUtils.degToRad(event.alpha - baseAlpha);
+    pitch = THREE.MathUtils.degToRad(event.gamma);
+  }
+
+  pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
 }
 
+function handleGamepadInput() {
+  const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+  const gp = gamepads[gamepadIndex || 0];
+  if (!gp) return;
+
+  const threshold = 0.2;
+  const leftX = gp.axes[0];
+  const leftY = gp.axes[1];
+
+  moveForward = leftY < -threshold;
+  moveBackward = leftY > threshold;
+  moveLeft = leftX < -threshold;
+  moveRight = leftX > threshold;
+}
+
 function animate() {
   requestAnimationFrame(animate);
-
   const delta = clock.getDelta();
+
+  if (navigator.getGamepads) handleGamepadInput();
+
   velocity.x -= velocity.x * 10.0 * delta;
   velocity.z -= velocity.z * 10.0 * delta;
 
-  direction.set(0, 0, 0);
+  direction.z = Number(moveForward) - Number(moveBackward);
+  direction.x = Number(moveRight) - Number(moveLeft);
+  direction.normalize();
 
-  if (gamepadActive) {
-    const gp = navigator.getGamepads()[0];
-    if (gp) {
-      const deadzone = 0.2;
-      let xAxis = Math.abs(gp.axes[0]) > deadzone ? gp.axes[0] : 0;
-      let yAxis = Math.abs(gp.axes[1]) > deadzone ? gp.axes[1] : 0;
+  if (moveForward || moveBackward) velocity.z -= direction.z * 50.0 * delta;
+  if (moveLeft || moveRight) velocity.x -= direction.x * 50.0 * delta;
 
-      const forward = new THREE.Vector3();
-      camera.getWorldDirection(forward);
-      forward.y = 0;
-      forward.normalize();
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  forward.y = 0; forward.normalize();
 
-      const right = new THREE.Vector3();
-      right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+  const right = new THREE.Vector3();
+  right.crossVectors(new THREE.Vector3(0, 1, 0), forward).normalize();
 
-      direction.add(forward.clone().multiplyScalar(-yAxis));
-      direction.add(right.clone().multiplyScalar(xAxis));
-      direction.normalize();
-    }
-  } else {
-    const forward = new THREE.Vector3();
-    camera.getWorldDirection(forward);
-    forward.y = 0; forward.normalize();
+  let moveX = velocity.x * delta;
+  let moveZ = velocity.z * delta;
 
-    const right = new THREE.Vector3();
-    right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+  let newPos = camera.position.clone();
+  newPos.add(forward.clone().multiplyScalar(-moveZ));
+  newPos.add(right.clone().multiplyScalar(moveX));
 
-    if (moveForward) direction.add(forward);
-    if (moveBackward) direction.add(forward.clone().negate());
-    if (moveRight) direction.add(right);
-    if (moveLeft) direction.add(right.clone().negate());
-    direction.normalize();
-  }
-
-  velocity.add(direction.clone().multiplyScalar(50.0 * delta));
-
-  let newPos = camera.position.clone().add(velocity.clone().multiplyScalar(delta));
-
-  const playerRadius = 2;
   let collision = false;
   for (let wall of mazeWalls) {
     const dist = wall.position.distanceTo(newPos);
-    if (dist < TILE / 2 + playerRadius) {
+    if (dist < TILE / 2 + 2) {
       collision = true; break;
     }
   }
@@ -274,7 +279,10 @@ function animate() {
 
   renderer.render(scene, camera);
 }
+
+window.addEventListener("gamepadconnected", (e) => {
+  gamepadIndex = e.gamepad.index;
+});
 </script>
 </body>
 </html>
-
