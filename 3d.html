@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>3D Maze VR-style Game</title>
+<title>3D Maze VR-style Game with Xbox Controller</title>
 <style>
   body, html {
     margin: 0; overflow: hidden; height: 100%; background: #000;
@@ -200,6 +200,24 @@ function onDeviceOrientation(event) {
 function animate() {
   requestAnimationFrame(animate);
 
+  // --- Xbox controller joystick input ---
+  const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+  if (gamepads[0]) {
+    const gp = gamepads[0];
+    const deadzone = 0.2;
+
+    let xAxis = gp.axes[0];
+    let yAxis = gp.axes[1];
+
+    if (Math.abs(xAxis) < deadzone) xAxis = 0;
+    if (Math.abs(yAxis) < deadzone) yAxis = 0;
+
+    moveForward = yAxis < -deadzone;
+    moveBackward = yAxis > deadzone;
+    moveLeft = xAxis < -deadzone;
+    moveRight = xAxis > deadzone;
+  }
+
   const delta = clock.getDelta();
   velocity.x -= velocity.x * 10.0 * delta;
   velocity.z -= velocity.z * 10.0 * delta;
@@ -211,8 +229,8 @@ function animate() {
   if (moveForward || moveBackward) velocity.z -= direction.z * 50.0 * delta;
   if (moveLeft || moveRight) velocity.x -= direction.x * 50.0 * delta;
 
-  let moveX = velocity.x * delta;
-  let moveZ = velocity.z * delta;
+  const moveX = velocity.x * delta;
+  const moveZ = velocity.z * delta;
 
   const forward = new THREE.Vector3();
   camera.getWorldDirection(forward);
