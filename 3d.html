@@ -1,36 +1,49 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>3D Maze VR-style Game</title>
-<style>
-  body, html {
-    margin: 0; overflow: hidden; height: 100%; background: #000;
-    font-family: Arial, sans-serif;
-  }
-  canvas {
-    display: block;
-  }
-  #permissionBtn {
-    position: absolute;
-    top: 40%;
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 20px 30px;
-    font-size: 1.5em;
-    background: #222;
-    color: #eee;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    z-index: 10;
-  }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>3D Maze VR-style Game</title>
+  <style>
+    body, html {
+      margin: 0; overflow: hidden; height: 100%; background: #000;
+      font-family: Arial, sans-serif;
+    }
+    canvas {
+      display: block;
+    }
+    #permissionBtn {
+      position: absolute;
+      top: 40%;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 20px 30px;
+      font-size: 1.5em;
+      background: #222;
+      color: #eee;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      z-index: 10;
+    }
+    #gameOver {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.9);
+      color: white;
+      font-size: 3em;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+    }
+  </style>
 </head>
 <body>
 
 <button id="permissionBtn">Tap to Enable Motion Controls</button>
+<div id="gameOver">Game Over!</div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
 <script>
@@ -43,6 +56,8 @@ let enemies = [];
 let health = 100;
 let mazeWalls = [];
 let gamepadIndex = null;
+let animationFrameId = null;
+
 const maze = [
   "111111111111111",
   "100000010000001",
@@ -56,6 +71,7 @@ const maze = [
 ];
 const TILE = 10;
 const permissionBtn = document.getElementById('permissionBtn');
+const gameOverUI = document.getElementById('gameOver');
 
 permissionBtn.addEventListener('click', async () => {
   if (typeof DeviceOrientationEvent !== 'undefined' &&
@@ -205,6 +221,7 @@ function onDeviceOrientation(event) {
   pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, pitch));
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
+  camera.rotation.z = 0; // Lock roll
 }
 
 function handleGamepadInput() {
@@ -222,8 +239,34 @@ function handleGamepadInput() {
   moveRight = leftX > threshold;
 }
 
+function checkCollision(pos) {
+  return mazeWalls.some(wall => {
+    const dx = Math.abs(pos.x - wall.position.x);
+    const dz = Math.abs(pos.z - wall.position.z);
+    return dx < TILE / 2 + 1.5 && dz < TILE / 2 + 1.5;
+  });
+}
+
+function updateEnemy(enemy, delta) {
+  const dir = enemy.userData.direction.clone();
+  const newPos = enemy.position.clone().add(dir.multiplyScalar(5 * delta));
+
+  if (checkCollision(newPos)) {
+    enemy.userData.direction.reflect(new THREE.Vector3(
+      (Math.random() > 0.5 ? 1 : -1), 0, (Math.random() > 0.5 ? 1 : -1)
+    )).normalize();
+  } else {
+    enemy.position.copy(newPos);
+  }
+}
+
+function endGame() {
+  cancelAnimationFrame(animationFrameId);
+  gameOverUI.style.display = 'flex';
+}
+
 function animate() {
-  requestAnimationFrame(animate);
+  animationFrameId = requestAnimationFrame(animate);
   const delta = clock.getDelta();
 
   if (navigator.getGamepads) handleGamepadInput();
@@ -252,27 +295,18 @@ function animate() {
   newPos.add(forward.clone().multiplyScalar(-moveZ));
   newPos.add(right.clone().multiplyScalar(moveX));
 
-  let collision = false;
-  for (let wall of mazeWalls) {
-    const dist = wall.position.distanceTo(newPos);
-    if (dist < TILE / 2 + 2) {
-      collision = true; break;
-    }
-  }
-
-  if (!collision) {
+  if (!checkCollision(newPos)) {
     camera.position.copy(newPos);
     playerCollider.center.copy(camera.position);
   }
 
   for (let enemy of enemies) {
-    enemy.position.add(enemy.userData.direction.clone().multiplyScalar(5 * delta));
+    updateEnemy(enemy, delta);
     const distToPlayer = enemy.position.distanceTo(playerCollider.center);
     if (distToPlayer < 4) {
       health -= 50 * delta;
       if (health <= 0) {
-        alert("Game Over!");
-        window.location.reload();
+        endGame();
       }
     }
   }
@@ -286,3 +320,4 @@ window.addEventListener("gamepadconnected", (e) => {
 </script>
 </body>
 </html>
+
